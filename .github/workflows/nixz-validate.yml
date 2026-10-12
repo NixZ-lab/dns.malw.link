@@ -26,5 +26,13 @@ jobs:
           for file in deployment/nixz/*.sh deployment/nixz/tests/*.sh; do bash -n "$file"; done
       - name: ShellCheck
         run: shellcheck -S warning deployment/nixz/*.sh deployment/nixz/tests/*.sh
+      - name: Actual UFW command syntax without activation
+        run: |
+          if ! command -v ufw >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y ufw
+          fi
+          sudo python3 deployment/nixz/public-guard.py --firewall-preflight > /tmp/nixz-ufw-preflight.log
+          tail -n 1 /tmp/nixz-ufw-preflight.log
       - name: Real isolated dnsdist / Nginx integration
         run: bash deployment/nixz/tests/integration.sh
