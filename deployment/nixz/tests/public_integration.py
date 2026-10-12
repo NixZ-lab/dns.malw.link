@@ -6,6 +6,7 @@ import socket
 import ssl
 import struct
 import sys
+import threading
 import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from probe import query, parse, receive
@@ -49,11 +50,26 @@ with dot('127.0.0.2') as peer:
     peer.sendall(b''.join(struct.pack('!H', len(q)) + q for q in requests))
     replies = [parse(receive(peer, struct.unpack('!H', receive(peer, 2))[0]), q) for q in requests]
     assert any(r['rcode'] == 5 for r in replies), 'Source query flood was not limited'
-    # Same IP and a new connection must not reset the limit; the forged HTTP header must not help.
-    assert doh('127.0.0.2')['rcode'] == 5, 'DoH did not share the actual-source limit'
-    assert doh('127.0.0.3')['rcode'] == 0, 'Independent source was charged as loopback/flood source'
-    with dot('127.0.0.3') as other:
-        assert send_dns(other, query(name))['rcode'] == 0
+    # Keep consuming tokens: a pause between TLS clients legitimately replenishes them.
+    stop = threading.Event()
+    failures = []
+    def flood():
+        try:
+            while not stop.is_set():
+                send_dns(peer, query(name))
+        except Exception as exc:
+            failures.append(str(exc))
+    worker = threading.Thread(target=flood)
+    worker.start()
+    try:
+        assert any(doh('127.0.0.2')['rcode'] == 5 for _ in range(3)), 'DoH did not share the actual-source limit'
+        assert doh('127.0.0.3')['rcode'] == 0, 'Independent source was charged as loopback/flood source'
+        with dot('127.0.0.3') as other:
+            assert send_dns(other, query(name))['rcode'] == 0
+    finally:
+        stop.set()
+        worker.join(timeout=10)
+    assert not worker.is_alive() and not failures, failures
 print('PROXYv2 identity, per-source rate and cross-transport isolation passed')
 
 for port in (443, 853):
