@@ -1,11 +1,14 @@
-# NixZ private DNS + SNI, node1
+# NixZ DNS + restricted SNI, node1
 
-**2026-10-12: trusted external DoH/DoT/SNI verified from an authorized Windows network; real iPhone app text/image request succeeded without VPN on authorized home Wi-Fi.**
-The user executed the VPS commands through their own SSH/console sessions; Work did not execute remote commands. Android worked without VPN after adding the exact `android.chat.openai.com` route. Home iPhone logs correlate the real source with `dns1.labgeo.net` to local DoH and `chatgpt.com`/`ios.chat.openai.com` to public third-party upstreams. The user confirmed sending an image with a prompt and receiving a successful result. This is scoped device acceptance, not unrestricted mobile access or proof of a fresh login.
+**2026-10-12: DEPLOYED & VERIFIED for the tested iPhone DoH + ChatGPT scenario on home Wi-Fi, LTE and Wi-Fi/LTE handoff, without VPN.** The user confirmed normal sites, sending a ChatGPT message, sending an image with a prompt and receiving successful results, then continued operation after returning to Wi-Fi. External VPS stream logs corroborate own DoH and the exact ChatGPT SNI paths from a new client network. Android ChatGPT also worked without VPN in the earlier authorized Wi-Fi DoT trial; Android LTE is not yet confirmed.
 
-The initial home/cellular test failed because both UFW and Nginx require the source address to be allowed. Home access was added to private node configuration and redeployed; the transient accidentally broad home-source TCP rule was removed. Never add a source only to UFW and assume application ACLs update. The latest home release path/hash has not been supplied, so it is not inferred from previous release evidence.
+The user executed the real VPS commands through their own SSH/IT Garage console; Work has no direct VPS shell. Active public-mode release: `/opt/nixz/releases/20261012T192545Z-9558`; manifest `8da7bbc07406304f91764edc2f1501e878486eff7340a812d75c6e5a80f7c362`. VPS code commit `48e3749ebc81544a247821c10851585d0ac79473` passed CI including actual UFW parser dry-run and real Docker source/rate/header/rollback checks. Both containers are healthy with zero restarts. Local apply acceptance verified own DoH over HTTP/2, DoT/local DNS and trusted TLS1.3 passthrough for all four OpenAI names; HTTP403 alone is not application acceptance.
 
-`dns1.labgeo.net` has a trusted Let's Encrypt certificate expiring 2027-01-10. Simulated renewal succeeded, challenge TCP80 rules were removed, and monitoring/renewal timers and a protected local backup were installed. A production-renewal deploy-hook execution is not yet observed. Public port53 remains closed; IPv6 is not enabled. NextDNS, DnsConf and production hosts are unchanged. Keep PR #1 draft: dynamic-IP access, macOS/Windows native settings, fresh-login testing and the remaining acceptance gates are not complete.
+UFW now exposes only IPv4 TCP443/853 for public encrypted DNS/restricted SNI, and SSH TCP22 on IPv4/IPv6. Internal DNS/relay/reject ports bind loopback; no public53, UDP443 or IPv6 proxy listener. The actual traffic guard timer is active and its service succeeds. The last supplied RX+TX reading was13,550,511 of2,147,483,648bytes. No budget-triggered production shutdown, reboot/recovery or second-node failover test is claimed. Public access is abuse-limited, not cryptographically authenticated private access.
+
+`dns1.labgeo.net` has the real A record and trusted Let's Encrypt certificate expiring2027-01-10. Simulated renewal succeeded and removed temporary TCP80 ingress; the production renewal-triggered deploy hook has not yet been observed. Monitoring and a protected local backup are installed. NextDNS, DnsConf and production hosts remain unchanged.
+
+Keep PR #1 draft/unmerged: native Windows/macOS DNS settings, Android LTE, fresh-login coverage, final recovery/closure checks and route-automation acceptance remain incomplete. The1,018-domain supplied catalogue is inactive; active routes remain only the four accepted OpenAI names.
 
 ## Architecture
 
@@ -300,13 +303,13 @@ While PR #1 is draft, do not run `routes-sync.sh` or enable its timer: that scri
 
 Never promote CI results or a single HTTP 403 to VPS/iPhone acceptance. Existing NextDNS profile `7437fe`, its 808 Rewrites, DnsConf ownership journal and production hosts must remain untouched.
 
-## Public-mode candidate implementation (not yet installed on node1)
+## Public-mode implementation and observed deployment
 
-The user approved the public-mode risk decision on 2026-10-12. Candidate code is not proof of deployment or LTE acceptance. Existing node files default to private mode; public mode requires `access_mode: "public"`, `public_access_ack: true`, TLS enabled and IPv6 disabled. Keep nonempty private `client_cidrs` for recovery. Do not add 0.0.0.0/0 to that list.
+The user approved the public-mode risk decision on2026-10-12 and deployed reviewed commit48e3749ebc81544a247821c10851585d0ac79473. Native iPhone LTE/handoff acceptance is confirmed above; other clients and unobserved recovery branches remain separate gates. Existing node files default to private mode; public mode requires `access_mode: "public"`, `public_access_ack: true`, TLS enabled and IPv6 disabled. Keep nonempty private `client_cidrs` for recovery. Do not add 0.0.0.0/0 to that list.
 
-Candidate edge: Nginx 1.31.6 adds a PROXYv2 header to its own local DNS backends. Third-party TLS is routed through loopback port9446, which consumes the header and forwards the unchanged TLS stream to exact pinned public upstreams. Headers are never passed to third-party servers. The relay listens only on loopback; original source IPs remain in its route logs. Local UDP/TCP5300 does not require a PROXY header.
+Deployed public edge: Nginx 1.31.6 adds a PROXYv2 header to its own local DNS backends. Third-party TLS is routed through loopback port9446, which consumes the header and forwards the unchanged TLS stream to exact pinned public upstreams. Headers are never passed to third-party servers. The relay listens only on loopback; original source IPs remain in its route logs. Local UDP/TCP5300 does not require a PROXY header.
 
-Candidate safeguards:
+Public-mode safeguards:
 - dnsdist trusts PROXYv2 only from physical peer127.0.0.1, only on its TLS frontends, with the header outside TLS. It retains a loopback physical-peer ACL, validates upstream DNS certificates and refuses ANY. A per-source 80QPS/120-burst rule returns REFUSED before route processing; the existing 200QPS aggregate action remains. Same-source DoH and DoT share the per-source budget.
 - Public edge caps concurrent connections at16/source and64 globally, with 128KiB/s per connection in each direction. Shared source IPs under CGNAT share those limits. These are candidate starting values, not an audited capacity promise.
 - `public-guard.py --arm --fresh-ssh-and-console-tested` defaults to a conservative 2GiB per UTC day of total host-interface RX+TX, sampled every15seconds. It opens only IPv4 TCP443/853, installs a persistent timer and leaves SSH, public53, IPv6 and UDP443 unchanged.
@@ -322,7 +325,7 @@ Deployment gates:
 5. Only then arm the traffic guard/open IPv4 ingress. Test native LTE, Wi-Fi-to-LTE transitions, forged headers, unknown SNI and budget-close/recovery. Log the actual active SHA, image digests, manifest and client results.
 6. `public-guard.py --close` is the emergency operator stop. For recovery, disable its timer, restore the saved private flags/image override as appropriate, run reviewed private deploy dry-run/apply, inspect UFW and repeat probes. Do not manually restart a latched public container without fixing the cause and deliberately reviewing/resetting guard state.
 
-The new integration stage tests public DNS/TLS, source query flood/refusal, independent-client isolation, cross-transport source identity despite a forged X-Forwarded-For header, external PROXY header rejection, the16-connection source cap and public-to-private ACL restoration. It uses disposable CI TLS only, not production certificate evidence. Budget accounting/reset/latch logic has unit tests; host UFW/systemd guard behavior still requires a controlled node1 test.
+The passing integration stage tests public DNS/TLS, source query flood/refusal, independent-client isolation, cross-transport source identity despite a forged X-Forwarded-For header, external PROXY header rejection, the16-connection source cap and public-to-private ACL restoration. It uses disposable CI TLS only, not production certificate evidence. Budget accounting/reset/latch logic has unit tests; actual UFW activation and normal systemd guard execution passed on node1. The first host activation exposed a duplicated UFW verb; it was fixed with parser preflight before state/timer changes and a real CI UFW dry-run. Its fail-closed path stopped Nginx, and private restoration was actually verified. Budget-triggered closure, reboot handling and production public-to-private recovery still require separate controlled checks.
 
 ## Supplied hosts catalogue: inactive by default
 
