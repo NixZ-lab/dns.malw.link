@@ -38,6 +38,9 @@ for i in 1 2 3 4 5; do
   sleep 3
 done
 [[ $pass == true ]]
+# Exercise the exact curl-free path used by native Windows acceptance.
+sudo python3 probe.py --release "$RELEASE_DIR" --ca "$RELEASE_DIR/certs/fullchain.pem" \
+  --native-http --out "$temp/native-evidence.json"
 python3 - <<'PY'
 import socket, ssl
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
