@@ -52,16 +52,24 @@ def sample(interface):
             datetime.now(timezone.utc).strftime('%Y-%m-%d'))
 
 
-def rule(action, port):
-    subprocess.run(['ufw', action, 'allow', 'from', '0.0.0.0/0', 'to', 'any',
-                    'port', str(port), 'proto', 'tcp'], check=True, timeout=15)
+def rule(action, port, dry_run=False):
+    if action not in ('allow', 'delete') or port not in (443, 853):
+        raise ValueError('Only guarded TCP443/853 rules are permitted')
+    command = ['ufw']
+    if dry_run:
+        command += ['--dry-run']
+    if action == 'delete':
+        command += ['--force', 'delete']
+    command += ['allow', 'from', '0.0.0.0/0', 'to', 'any',
+                'port', str(port), 'proto', 'tcp']
+    subprocess.run(command, check=True, timeout=15)
 
 
 def stop(state, reason):
     state.update(latched=True, reason=reason)
     save(state)
     # Stop existing tunnels too, not just new connections. SSH and dnsdist are untouched.
-    subprocess.run(['docker', 'stop', '--time', '2', 'nixz-nginx-1'], check=True, timeout=15)
+    subprocess.run(['docker', 'stop', '--timeout', '2', 'nixz-nginx-1'], check=True, timeout=15)
     status = subprocess.check_output(['ufw', 'status'], text=True)
     for port in (443, 853):
         if re.search(r'^\s*' + str(port) + r'/tcp\s+ALLOW IN\s+Anywhere\s*$', status, re.M):
@@ -92,6 +100,9 @@ def arm(interface, budget, fresh):
         raise ValueError('UFW must already be active')
     if re.search(r'^\s*(443|853)/tcp\s+ALLOW IN\s+Anywhere', status, re.M):
         raise ValueError('Pre-existing public rule: inspect ownership instead of replacing it')
+    # Validate actual UFW command parsing before state, timers or ingress change.
+    for port in (443, 853):
+        rule('allow', port, dry_run=True)
     for cidr in node['client_cidrs']:
         ipaddress.ip_network(cidr, strict=True)
     rx, tx, boot, day = sample(interface)
@@ -137,12 +148,18 @@ def main():
     m.add_argument('--arm', action='store_true')
     m.add_argument('--check', action='store_true')
     m.add_argument('--close', action='store_true')
+    m.add_argument('--firewall-preflight', action='store_true')
     p.add_argument('--interface', default='ens3')
     p.add_argument('--budget-gib', type=int, default=2, choices=range(1, 11))
     p.add_argument('--fresh-ssh-and-console-tested', action='store_true')
     a = p.parse_args()
     if os.geteuid() != 0:
         raise SystemExit('sudo required')
+    if a.firewall_preflight:
+        for port in (443, 853):
+            rule('allow', port, dry_run=True)
+        print('UFW syntax preflight passed. No rules, timers or containers changed.')
+        return
     lock = open('/run/nixz-public.lock', 'a')
     fcntl.flock(lock, fcntl.LOCK_EX)
     if a.arm:
@@ -161,7 +178,7 @@ def main():
             save(current)
             print('Traffic:', current['used'], '/', current['budget'])
     except Exception:
-        subprocess.run(['docker', 'stop', '--time', '2', 'nixz-nginx-1'], timeout=15)
+        subprocess.run(['docker', 'stop', '--timeout', '2', 'nixz-nginx-1'], timeout=15)
         raise
 
 
