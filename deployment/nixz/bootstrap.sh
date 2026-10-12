@@ -29,6 +29,22 @@ ignoreip = 127.0.0.1/8 ::1 $client_ip
 EOF
 fail2ban-client -t
 systemctl restart fail2ban
+# systemctl restart can report success before fail2ban has created its control socket.
+# Wait for the configured sshd jail; fail with diagnostics on a genuine startup error.
+fail2ban_ready=0
+for attempt in {1..30}; do
+  if fail2ban-client status sshd >/dev/null 2>&1; then
+    fail2ban_ready=1
+    break
+  fi
+  sleep 1
+done
+if (( ! fail2ban_ready )); then
+  systemctl status fail2ban --no-pager -l >&2 || true
+  journalctl -u fail2ban -n 50 --no-pager >&2 || true
+  echo 'Fail2ban sshd jail did not become ready within 30 seconds' >&2
+  exit 1
+fi
 fail2ban-client status sshd
 cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
 APT::Periodic::Update-Package-Lists "1";
