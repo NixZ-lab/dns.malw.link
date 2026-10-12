@@ -3,6 +3,8 @@
   "hostname": "",
   "tls": false,
   "ipv6_verified": false,
+  "access_mode": "private",
+  "public_access_ack": false,
   "client_cidrs": [],
   "ttl": 60
 }
