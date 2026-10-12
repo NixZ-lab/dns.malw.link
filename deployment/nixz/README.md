@@ -1,9 +1,8 @@
 # NixZ private DNS + SNI, node1
 
-**Current state: PREPARED ONLY. Nothing in this directory has been installed on the VPS by Work.**
-Direct SSH from Work returned `Network is unreachable`. Secure IT Garage login succeeded and the panel confirmed node1 is active with the expected IPv4/tariff. Provider-console navigation was blocked by protected browser state; no server shell was obtained.
-Public DNS queries on 2026-10-12 returned NXDOMAIN for `nixz-lab.net` NS and `node1.nixz-lab.net` A/AAAA.
-This establishes missing DNS delegation/records, not domain availability or ownership. Do not request a certificate or install profiles until you control a real DNS zone.
+**Status on 2026-10-12: deployed and locally verified; external encrypted DNS and device acceptance pending.**
+The user executed reviewed scripts on the VPS through their Windows SSH key. Work has no direct VPS shell. Current TLS release is `/opt/nixz/releases/20261012T132120Z-13122`; both containers are healthy and the apply script passed its local DoH, DoT, UDP DNS and SNI checks before activation. External Windows SNI tests passed for the three trial domains; HTTP 403 establishes transport, not iPhone application acceptance.
+The user registered `labgeo.net`. Authoritative DNS and independent public resolvers confirmed `dns1.labgeo.net` A to node1 and the domain-control TXT, with no AAAA. The Let's Encrypt certificate has the correct SAN, a trusted VPS chain and expiry 2027-01-10. UFW permits TCP 443/853 only from the locally configured client; fresh key-based SSH and external TCP 853 were confirmed. Certificate renewal and full external DoH/DoT probes remain to be verified. NextDNS, DnsConf and production hosts are unchanged. Keep PR #1 draft and unmerged until acceptance is complete.
 
 ## Architecture
 
@@ -145,6 +144,35 @@ python3 deployment/nixz/clients.py --release ./active-public-release --evidence 
 `clients.py` rejects local-only evidence, test certificates, mismatched release manifests and evidence older than a day. No fake `.mobileconfig` is included here. Profiles are generated **only after** this real acceptance.
 
 Before relying on uptime, explicitly test container restart (with console recovery available), rerun local/external probes, and inspect automatic starts. A reboot should be a deliberate supervised test after stable networking, not an installation side effect.
+
+### Native Windows external acceptance
+
+Windows Python 3 can run the same probe without curl or additional packages. `--native-http` uses HTTPS with normal certificate/hostname validation and HTTP/1.1 for DoH; DoT and every positive/negative DNS/SNI check stay the same. The evidence records the HTTP client, so this does not claim an external HTTP/2 test. CI exercises both curl HTTP/2 and the native HTTP/1.1 paths.
+
+On the VPS, package reviewed probe code and the active release's public metadata only:
+
+```bash
+sudo tar -czf /home/admin/nixz-external.tgz \
+  -C /opt/nixz/repo/deployment/nixz probe.py nixz.py clients.py \
+  -C /opt/nixz/current routes.json node.json manifest.json
+sudo chown admin:admin /home/admin/nixz-external.tgz
+sudo chmod 600 /home/admin/nixz-external.tgz
+```
+
+This archive includes the local client CIDRs and should remain private. It excludes certificates and private keys. From Windows PowerShell, use an empty extraction directory:
+
+```powershell
+$ProbeDir = Join-Path $env:USERPROFILE 'Downloads\NixZ\external-node1'
+New-Item -ItemType Directory -Path $ProbeDir -ErrorAction Stop
+scp -o IdentitiesOnly=yes -i "$env:USERPROFILE\.ssh\node1_ed25519" admin@2.27.16.203:/home/admin/nixz-external.tgz "$ProbeDir\nixz-external.tgz"
+if ($LASTEXITCODE -ne 0) { throw 'SCP failed' }
+tar.exe -xzf "$ProbeDir\nixz-external.tgz" -C $ProbeDir
+if ($LASTEXITCODE -ne 0) { throw 'Extraction failed' }
+Set-Location $ProbeDir
+py .\probe.py --release . --address 2.27.16.203 --external --native-http --out .\node1-external.json
+```
+
+Only after the probe exits successfully, generate client files with `py .\clients.py --release . --evidence .\node1-external.json --out .\node1-clients`. Generating files is not authorization to install profiles or change device DNS. No network test run on the VPS qualifies as external Windows evidence.
 
 ## 7. Personal-device test
 
