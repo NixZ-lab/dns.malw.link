@@ -28,7 +28,7 @@ services:
       driver: local
       options: {max-size: "10m", max-file: "3"}
   nginx:
-    image: ${NGINX_IMAGE:-nginx:1.30.5-alpine}
+    image: ${NGINX_IMAGE:-nginx:1.31.6-alpine}
     network_mode: host
     user: "0:0"
     entrypoint: ["nginx"]
