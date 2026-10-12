@@ -67,4 +67,44 @@ PY
 if sudo python3 clients.py --release "$RELEASE_DIR" --evidence "$temp/evidence.json" --out "$temp/clients"; then
   echo 'BUG: client profiles accepted test-CA/local evidence'; exit 1
 fi
+private_release="$RELEASE_DIR"
+python3 - "$temp/node.json" <<'PY'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+node = json.loads(p.read_text())
+node.update(access_mode='public', public_access_ack=True)
+p.write_text(json.dumps(node))
+PY
+export RELEASE_DIR="$temp/public-release"
+python3 nixz.py render --node "$temp/node.json" --out "$RELEASE_DIR"
+sudo cp -a "$private_release/certs" "$RELEASE_DIR/certs"
+docker compose -f compose.yaml run --rm --no-deps nginx -c /config/nginx.conf -t
+docker compose -f compose.yaml run --rm --no-deps dnsdist --check-config -C /config/dnsdist.conf
+docker compose -f compose.yaml up -d --force-recreate
+sudo "$temp/probe-venv/bin/python" probe.py --release "$RELEASE_DIR" --ca "$RELEASE_DIR/certs/fullchain.pem" \
+  --native-http --out "$temp/public-evidence.json"
+sudo "$temp/probe-venv/bin/python" tests/public_integration.py "$RELEASE_DIR"
+# Return to the private candidate and verify unlisted sources are denied again.
+export RELEASE_DIR="$private_release"
+docker compose -f compose.yaml up -d --force-recreate
+sudo python3 - <<'PY'
+import socket, ssl
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+for port in (443, 853):
+    with socket.socket() as raw:
+        raw.settimeout(5)
+        raw.bind(('127.0.0.2', 0))
+        raw.connect(('127.0.0.1', port))
+        try:
+            peer = ctx.wrap_socket(raw, server_hostname='dns.nixz-ci.invalid')
+        except (OSError, ssl.SSLError):
+            pass
+        else:
+            peer.close()
+            raise AssertionError('Public-to-private rollback did not reject unlisted source')
+print('Public-to-private source ACL restoration passed')
+PY
 echo 'Isolated Docker integration passed. This does NOT verify node1 VPS or iPhone.'
