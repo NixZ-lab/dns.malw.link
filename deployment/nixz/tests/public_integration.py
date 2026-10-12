@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real isolated source-identity, DNS rate, connection and header-forgery checks."""
 import json
+import asyncio
 from pathlib import Path
 import socket
 import ssl
@@ -45,6 +46,22 @@ def doh(source):
         return parse(response.content, request)
 
 
+async def doh_burst(source):
+    transport = httpx.AsyncHTTPTransport(local_address=source, http1=False, http2=True,
+                                        verify=ctx, trust_env=False,
+                                        limits=httpx.Limits(max_connections=1))
+    async with httpx.AsyncClient(transport=transport, timeout=5, trust_env=False) as client:
+        async def one():
+            request = query(name)
+            response = await client.post('https://127.0.0.1/dns-query', content=request,
+                                         headers={'Host': host, 'Content-Type': 'application/dns-message',
+                                                  'X-Forwarded-For': '192.0.2.99'},
+                                         extensions={'sni_hostname': host})
+            assert response.status_code == 200 and response.http_version == 'HTTP/2'
+            return parse(response.content, request)
+        return await asyncio.gather(*(one() for _ in range(32)))
+
+
 with dot('127.0.0.2') as peer:
     requests = [query(name) for _ in range(500)]
     peer.sendall(b''.join(struct.pack('!H', len(q)) + q for q in requests))
@@ -56,13 +73,16 @@ with dot('127.0.0.2') as peer:
     def flood():
         try:
             while not stop.is_set():
-                send_dns(peer, query(name))
+                batch = [query(name) for _ in range(100)]
+                peer.sendall(b''.join(struct.pack('!H', len(q)) + q for q in batch))
+                for q in batch:
+                    parse(receive(peer, struct.unpack('!H', receive(peer, 2))[0]), q)
         except Exception as exc:
             failures.append(str(exc))
     worker = threading.Thread(target=flood)
     worker.start()
     try:
-        assert any(doh('127.0.0.2')['rcode'] == 5 for _ in range(3)), 'DoH did not share the actual-source limit'
+        assert any(r['rcode'] == 5 for r in asyncio.run(doh_burst('127.0.0.2'))), 'DoH did not share the actual-source limit'
         assert doh('127.0.0.3')['rcode'] == 0, 'Independent source was charged as loopback/flood source'
         with dot('127.0.0.3') as other:
             assert send_dns(other, query(name))['rcode'] == 0
