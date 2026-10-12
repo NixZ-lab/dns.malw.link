@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from test_routes import RoutesTests
@@ -59,3 +60,14 @@ class GuardTests(unittest.TestCase):
     def test_day_rollover_does_not_hide_overrun(self):
         _, why = guard.evaluate(self.state, 1100, 200, 'boot1', '2026-10-13')
         self.assertIsNotNone(why)
+
+    def test_ufw_add_delete_and_preflight_are_valid_commands(self):
+        with patch.object(guard.subprocess, 'run') as run:
+            guard.rule('allow', 443)
+            self.assertEqual(run.call_args.args[0], ['ufw', 'allow', 'from', '0.0.0.0/0', 'to', 'any', 'port', '443', 'proto', 'tcp'])
+            guard.rule('delete', 853)
+            self.assertEqual(run.call_args.args[0], ['ufw', '--force', 'delete', 'allow', 'from', '0.0.0.0/0', 'to', 'any', 'port', '853', 'proto', 'tcp'])
+            guard.rule('allow', 853, dry_run=True)
+            self.assertEqual(run.call_args.args[0], ['ufw', '--dry-run', 'allow', 'from', '0.0.0.0/0', 'to', 'any', 'port', '853', 'proto', 'tcp'])
+            for action, port in [('allow', 22), ('allow', 53), ('reset', 443)]:
+                with self.assertRaises(ValueError): guard.rule(action, port)
