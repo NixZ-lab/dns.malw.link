@@ -32,7 +32,9 @@
       "api.deepl.com",
       "backend.deepl.com",
       "ita-free.app.deepl.com",
-      "ita-free.www.deepl.com"
+      "ita-free.www.deepl.com",
+      "oneshot-free.www.deepl.com",
+      "clearance.deepl.com"
     ],
     "elevenlabs": [
       "elevenlabs.io",
