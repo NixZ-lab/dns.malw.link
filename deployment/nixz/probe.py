@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real DNS/TLS probes. curl must support HTTP/2. No certificate bypass."""
+"""Real DNS/TLS probes. Native HTTP/1.1 mode supports Windows. No certificate bypass."""
 import argparse
 import base64
 import datetime
@@ -11,7 +11,7 @@ import ssl
 import struct
 import subprocess
 import tempfile
-from nixz import ROOT, load, verify_peer
+from nixz import PinnedHTTPS, ROOT, load, verify_peer
 
 
 def query(name, qtype=1):
@@ -65,7 +65,7 @@ def receive(sock, count):
     return result
 
 
-def dns_query(name, qtype, mode, address, hostname, ca=None):
+def dns_query(name, qtype, mode, address, hostname, ca=None, native_http=False):
     request = query(name, qtype)
     if mode == 'udp':
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -81,6 +81,21 @@ def dns_query(name, qtype, mode, address, hostname, ca=None):
                 response = receive(sock, struct.unpack('!H', receive(sock, 2))[0])
     else:
         dns = base64.urlsafe_b64encode(request).rstrip(b'=').decode()
+        if native_http:
+            conn = PinnedHTTPS(hostname, address, context=ssl.create_default_context(cafile=ca))
+            try:
+                conn.request('GET', '/dns-query?dns=' + dns, headers={'Accept': 'application/dns-message'})
+                reply = conn.getresponse()
+                if reply.status != 200:
+                    raise ValueError(f'DoH HTTP status {reply.status}')
+                if reply.getheader('Content-Type', '').split(';')[0].strip().lower() != 'application/dns-message':
+                    raise ValueError('DoH returned an unexpected content type')
+                response = reply.read(65536)
+                if len(response) > 65535:
+                    raise ValueError('Oversized DNS response')
+                return parse(response, request)
+            finally:
+                conn.close()
         cmd = ['curl', '--noproxy', '*', '--http2', '--fail', '--silent', '--show-error',
                '--connect-timeout', '5', '--max-time', '15', '--resolve',
                f'{hostname}:443:{"[" + address + "]" if ":" in address else address}',
@@ -103,6 +118,8 @@ def main():
     parser.add_argument('--external', action='store_true')
     parser.add_argument('--ca', help='CI-only test CA; never install on production devices')
     parser.add_argument('--skip-upstream', action='store_true', help='CI only; no production evidence')
+    parser.add_argument('--native-http', action='store_true',
+                        help='Use Python HTTPS with trusted TLS and HTTP/1.1; no curl dependency (Windows)')
     parser.add_argument('--out', type=Path)
     args = parser.parse_args()
     routes, node, proxy, records = load(args.release / 'routes.json', args.release / 'node.json')
@@ -115,27 +132,36 @@ def main():
     result = {'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
               'external': args.external, 'address': args.address, 'hostname': node['hostname'],
               'test_ca': bool(args.ca), 'dns': [], 'sni': [], 'client_test': 'PENDING',
+              'doh_client': 'Python HTTP/1.1' if args.native_http else 'curl --http2',
               'manifest_sha256': __import__('hashlib').sha256((args.release / 'manifest.json').read_bytes()).hexdigest()}
     expected4 = routes['nodes'][node['node']]['ipv4']
     expected6 = [routes['nodes'][node['node']]['ipv6']] if node['ipv6_verified'] else []
     for mode in modes:
         for name in proxy:
             for qtype, expected in [(1, [expected4]), (28, expected6), (64, []), (65, [])]:
-                answer = dns_query(name, qtype, mode, args.address, node['hostname'], args.ca)
+                answer = dns_query(name, qtype, mode, args.address, node['hostname'], args.ca, args.native_http)
                 require(answer['rcode'] == 0 and answer['ips'] == expected and not answer['ad'],
                         f'{mode} wrong rewrite: {name}/{qtype} {answer}')
                 if qtype in [64, 65] or (qtype == 28 and not expected6):
                     require(answer['answers'] == 0, 'SVCB/HTTPS or IPv6 bypass')
                 result['dns'].append({'transport': mode, 'name': name, 'qtype': qtype, **answer})
         for name in routes['blocked']:
-            require(dns_query(name, 1, mode, args.address, node['hostname'], args.ca)['rcode'] == 3,
+            require(dns_query(name, 1, mode, args.address, node['hostname'], args.ca, args.native_http)['rcode'] == 3,
                     'Block rule failed')
         if not args.skip_upstream:
-            answer = dns_query('example.org', 1, mode, args.address, node['hostname'], args.ca)
+            answer = dns_query('example.org', 1, mode, args.address, node['hostname'], args.ca, args.native_http)
             require(answer['rcode'] == 0 and answer['ips'] and expected4 not in answer['ips'], 'Recursion failed')
             result['dns'].append({'transport': mode, 'name': 'example.org', **answer})
     for name in proxy:
         result['sni'].append(verify_peer(name, args.address))
+        if args.native_http:
+            conn = PinnedHTTPS(name, args.address)
+            try:
+                conn.request('GET', '/')
+                result['sni'][-1]['http_status'] = str(conn.getresponse().status)
+            finally:
+                conn.close()
+            continue
         cmd = ['curl', '--noproxy', '*', '--silent', '--show-error', '--max-time', '15',
                '--resolve', f'{name}:443:{args.address}', '--output', '/dev/null',
                '--write-out', '%{http_code}', f'https://{name}/']
