@@ -12,7 +12,7 @@ function Remote([string]$Command) {
   if ($LASTEXITCODE -ne 0) { throw "Remote command failed ($LASTEXITCODE)" }
 }
 # A real fresh SSH login on every invocation. Passphrase is entered in OpenSSH locally.
-Remote 'id; sudo whoami; sudo sshd -T | grep -E "^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|pubkeyauthentication) "'
+Remote 'id; sudo whoami; sudo sshd -T | grep -e permitrootlogin -e passwordauthentication -e kbdinteractiveauthentication -e pubkeyauthentication'
 $Base = '/opt/nixz/repo/deployment/nixz'
 switch ($Step) {
   'Audit' {
