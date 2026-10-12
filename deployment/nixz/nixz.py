@@ -178,7 +178,8 @@ def compile_release(routes, node, proxy, records, pins, output):
         proxy_connect_timeout 5s;
         proxy_timeout 60s;
     }}'''
-    nginx = '''worker_processes 1;
+    nginx = '''user nginx;
+worker_processes 1;
 pid /tmp/nginx.pid;
 error_log /dev/stderr warn;
 events { worker_connections 1024; }
@@ -205,6 +206,7 @@ stream {
 ''' + dot + '\n}\n'
     lua = ['setLocal("127.0.0.1:5300")', 'setACL({"127.0.0.1/32", "::1/128"})',
            'setSecurityPollSuffix("")', 'setMaxTCPClientThreads(2)',
+           'setMaxTCPQueuedConnections(128)',
            'setMaxTCPConnectionsPerClient(64)',
            'addAction(AllRule(), QPSAction(200))',
            'addAction(QTypeRule(DNSQType.ANY), RCodeAction(DNSRCode.REFUSED))',
