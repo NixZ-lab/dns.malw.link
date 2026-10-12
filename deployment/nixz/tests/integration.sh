@@ -32,6 +32,7 @@ docker compose -f compose.yaml run --rm --no-deps dnsdist --check-config -C /con
 docker compose -f compose.yaml up -d
 pass=false
 for i in 1 2 3 4 5; do
+  echo "Integration attempt $i"
   # Real public SNI peers; self-signed cert is accepted only for our isolated DNS fixture.
   if sudo python3 probe.py --release "$RELEASE_DIR" --ca "$RELEASE_DIR/certs/fullchain.pem" --out "$temp/evidence.json"; then pass=true; break; fi
   sleep 3

@@ -4,7 +4,7 @@ set -Eeuo pipefail
 [[ ${1:-} == --fresh-ssh-and-console-tested ]] || { echo 'First test a NEW SSH connection and a usable rescue console'; exit 1; }
 . /etc/os-release
 [[ $ID == ubuntu && $VERSION_ID == 24.04 ]] || { echo 'Ubuntu 24.04 required'; exit 1; }
-read -r client_ip client_port server_ip ssh_port <<< "$SSH_CONNECTION"
+read -r client_ip _ _ ssh_port <<< "$SSH_CONNECTION"
 [[ $ssh_port =~ ^[0-9]+$ ]] || exit 1
 effective=$(sshd -T)
 for setting in 'permitrootlogin no' 'passwordauthentication no' 'kbdinteractiveauthentication no' 'pubkeyauthentication yes'; do

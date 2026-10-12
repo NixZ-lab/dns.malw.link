@@ -62,7 +62,7 @@ ufw status | grep -q 'Status: active' || { echo 'UFW must be active'; exit 1; }
 old=$(readlink -f /opt/nixz/current || true)
 if [[ ! -d $old ]]; then
   for port in 443 853 5300 8443 8853 9444; do
-    if ss -lntu | grep -qE ":$port[[:space:]]"; then echo "Port $port occupied"; exit 1; fi
+    if ss -lntu | grep -qE ":${port}[[:space:]]"; then echo "Port $port occupied"; exit 1; fi
   done
 fi
 new="/opt/nixz/releases/$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -74,6 +74,7 @@ recover() {
 if ! compose "$new" up -d --force-recreate; then recover; exit 1; fi
 ok=false
 for attempt in 1 2 3 4 5; do
+  echo "Health attempt $attempt"
   if python3 probe.py --release "$new" --out "$new/local-evidence.json"; then ok=true; break; fi
   sleep 3
 done
