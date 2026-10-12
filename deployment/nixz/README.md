@@ -331,17 +331,17 @@ The passing integration stage tests public DNS/TLS, source query flood/refusal, 
 
 `service-candidates.json` contains101 service groups and1,018 valid exact candidate names extracted from the user's supplied hosts. All22 source IP values were discarded, repeated IP/name lines deduplicated, and four legacy local/DNS-test names excluded. Its enabled_groups is empty. `import_hosts.py` validates inputs and reproduces this conversion without enabling any route.
 
-The supplied list is a candidate source, not ownership/need/TLS validation. Do not assume every www/API/status/telemetry/third-party name is required, or that every listed service can use a TCP443 SNI proxy. Game/voice/UDP protocols and arbitrary dynamically generated hostnames may not fit. No broad generic CDN root or wildcard is enabled. The branch now stages 35 exact names: the four accepted OpenAI names plus six user-requested service groups. These additions are PREPARED ONLY until this revision passes CI, is applied on node1 and passes client checks. The 100-active-domain v1 safety gate is unchanged. Review and activate small service groups in routes.json through CI and real tests; do not lift the limit to blindly import the entire catalogue.
+The supplied list is a candidate source, not ownership/need/TLS validation. Do not assume every www/API/status/telemetry/third-party name is required, or that every listed service can use a TCP443 SNI proxy. Game/voice/UDP protocols and arbitrary dynamically generated hostnames may not fit. No broad generic CDN root or wildcard is enabled. The branch now stages 36 exact names: the four accepted OpenAI names plus six user-requested service groups. These additions are PREPARED ONLY until this revision passes CI, is applied on node1 and passes client checks. The 100-active-domain v1 safety gate is unchanged. Review and activate small service groups in routes.json through CI and real tests; do not lift the limit to blindly import the entire catalogue.
 
 ## Six additional service groups (2026-10-12, prepared only)
 
-The user requested Claude, Gemini, DeepL, ElevenLabs, Canva and NotebookLM. `routes.json` enables a small initial set of 31 new exact names, alongside the four accepted OpenAI names. No source-service proxy IP was copied; rewrites still target node1's 2.27.16.203. The selected names are service-scoped candidates, not a claim that every dependency of every app is covered.
+The user requested Claude, Gemini, DeepL, ElevenLabs, Canva and NotebookLM. `routes.json` enables a small initial set of 32 new exact names, alongside the four accepted OpenAI names. No source-service proxy IP was copied; rewrites still target node1's 2.27.16.203. The selected names are service-scoped candidates, not a claim that every dependency of every app is covered.
 
 | Group | Initial scope |
 |---|---|
 | claude | claude.ai, claude.com, www.claude.com, api.anthropic.com |
 | gemini | gemini.google.com, geminiweb-pa.clients6.google.com, robinfrontend-pa.googleapis.com |
-| deepl | deepl.com, www.deepl.com, app.deepl.com, auth.deepl.com, api.deepl.com, backend.deepl.com, ita-free.app.deepl.com, ita-free.www.deepl.com, oneshot-free.www.deepl.com, clearance.deepl.com |
+| deepl | deepl.com, www.deepl.com, app.deepl.com, auth.deepl.com, api.deepl.com, backend.deepl.com, ita-free.app.deepl.com, ita-free.www.deepl.com, oneshot-free.www.deepl.com, clearance.deepl.com, ita.fal.free.deepl.com |
 | elevenlabs | elevenlabs.io, www.elevenlabs.io, api.elevenlabs.io, eleven-public-cdn.elevenlabs.io |
 | canva | canva.com, www.canva.com, static.canva.com, content-management-files.canva.com |
 | notebooklm | notebooklm.google.com, notebooklm.google, notebook.google.com, notebook.google, notebooklm-pa.googleapis.com, notebook-pa.googleapis.com |
@@ -365,3 +365,13 @@ Actual VPS requests through the loopback SNI entry verified www.deepl.com HTTP30
 This follow-up stages two DeepL additions only: oneshot-free.www.deepl.com (the current [independent client's translation endpoint](https://github.com/OwO-Network/DLX/blob/main/translate/translate.go), identified through its source; not vendor-guaranteed device coverage) and clearance.deepl.com ([vendor security-check troubleshooting](https://support.deepl.com/hc/en-us/articles/4415079449618-Troubleshooting-Sorry-there-was-a-problem-with-the-security-check-and-the-request-to-clearance-deepl-com-failed)). Both require independent DNS, public-address, trusted TLS and real Docker route validation before node1 dry-run/apply. Passing those checks still requires retrying a translation on the actual phone.
 
 NotebookLM routes are unchanged. A browser test on the same phone/account remains necessary to separate mobile-only behavior from a shared regional/account problem. No Google-wide allowlist, region-setting change, account recreation, TLS fingerprint impersonation, new engine or HTTPS interception is introduced. The user's normal DeepL app/browser should supply its own requests.
+
+## Observed DeepL v2 dependency
+
+The subsequent Windows browser Network capture identified a failing OPTIONS request to ita.fal.free.deepl.com/v2/startSession. This exact hostname was absent from the 35-name route set. Remote Address was the real DeepL upstream (194.124.204.71:443), not node1; the server returned HTTP451. The installation/client query identifier from the screenshot is deliberately not stored.
+
+The 36-name candidate adds only ita.fal.free.deepl.com to the DeepL group. Earlier actual node1 tests showed anonymous v1 negotiate HTTP200/session creation and WebSocket HTTP101 with a valid accept both directly and through Nginx. No connection-limit/timeout errors were observed; the supplied snapshot had only 3 established sessions from home and 1 from cellular. Those controls tested the older v1 path, not the failing v2 request. They do not establish that translation works.
+
+CI now also checks a synthetic v2 CORS preflight through the public candidate's Nginx relay, with the vendor's web Origin and POST method. No user account, text, cookie or captured client identifier is used. Actual VPS and iPhone translation tests remain mandatory.
+
+The older isolated Edge test process pins only the ten names supplied to it on startup; applying the eleventh name on node1 does not modify those browser arguments. Retest on the iPhone using the existing NixZ DNS profile, or start a fresh isolated browser with all eleven names. Refresh client DNS/network state if a previously direct address persists, and verify the new SNI route in node1 logs. An HTTP451 screenshot identifies a refused direct request, not proof that node1's exit IP is blocked.
