@@ -84,6 +84,29 @@ docker compose -f compose.yaml run --rm --no-deps dnsdist --check-config -C /con
 docker compose -f compose.yaml up -d --force-recreate
 sudo "$temp/probe-venv/bin/python" probe.py --release "$RELEASE_DIR" --ca "$RELEASE_DIR/certs/fullchain.pem" \
   --native-http --out "$temp/public-evidence.json"
+# Exercise the exact v2 preflight that failed on the real client, not just a root GET.
+sudo python3 - "$RELEASE_DIR" <<'PY'
+import json, sys, uuid
+from pathlib import Path
+from nixz import PinnedHTTPS, load
+release = Path(sys.argv[1])
+_, _, names, _ = load(release / 'routes.json', release / 'node.json')
+host = 'ita.fal.free.deepl.com'
+if host in names:
+    conn = PinnedHTTPS(host, '127.0.0.1')
+    try:
+        conn.request('OPTIONS', '/v2/startSession?client=' + str(uuid.uuid4()),
+                     headers={'Origin': 'https://www.deepl.com',
+                              'Access-Control-Request-Method': 'POST',
+                              'Access-Control-Request-Headers': 'content-type'})
+        response = conn.getresponse()
+        origin = response.getheader('Access-Control-Allow-Origin')
+        print(f'DeepL v2 preflight through SNI: HTTP={response.status} origin={origin}', flush=True)
+        assert response.status in (200, 204), 'DeepL v2 preflight refused'
+        assert origin in ('https://www.deepl.com', '*'), 'DeepL v2 CORS origin missing'
+    finally:
+        conn.close()
+PY
 sudo "$temp/probe-venv/bin/python" tests/public_integration.py "$RELEASE_DIR"
 # Return to the private candidate and verify unlisted sources are denied again.
 export RELEASE_DIR="$private_release"
