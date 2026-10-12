@@ -29,6 +29,7 @@ python3 nixz.py render --routes "$routes" --node "$node" --out "$candidate/relea
 release="$candidate/release"
 cp compose.yaml "$release/compose.yaml"
 cp .env.example "$release/images.env"
+if [[ -f /opt/nixz/current/images.env ]]; then cp /opt/nixz/current/images.env "$release/images.env"; fi
 if [[ -f /etc/nixz/images.env ]]; then cp /etc/nixz/images.env "$release/images.env"; fi
 tls=$(python3 -c 'import json; print(json.load(open("/etc/nixz/node.json"))["tls"])')
 if [[ $tls == True ]]; then

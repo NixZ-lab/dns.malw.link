@@ -1,7 +1,7 @@
 # NixZ private DNS + SNI, node1
 
 **Current state: PREPARED ONLY. Nothing in this directory has been installed on the VPS by Work.**
-Direct SSH from Work returned `Network is unreachable`; the IT Garage panel had no signed-in session.
+Direct SSH from Work returned `Network is unreachable`. Secure IT Garage login succeeded and the panel confirmed node1 is active with the expected IPv4/tariff. Provider-console navigation was blocked by protected browser state; no server shell was obtained.
 Public DNS queries on 2026-10-12 returned NXDOMAIN for `nixz-lab.net` NS and `node1.nixz-lab.net` A/AAAA.
 This establishes missing DNS delegation/records, not domain availability or ownership. Do not request a certificate or install profiles until you control a real DNS zone.
 
@@ -22,7 +22,7 @@ Android native Private DNS cannot carry a token or arbitrary login. For a privat
 
 The upstream installer is **not used**: it deletes repository files, rewrites configs in place, issues certificates despite failed DNS checks, opens temporary iptables exceptions and downloads uncontrolled upstream lists. Original Compose publishes 53 and dnsdist uses universal ACLs. Original Nginx resolves permitted names dynamically and permits wildcard subdomains. It does not reject private DNS destinations. The original cache permits stale answers for an hour; its tag 2.0.5 and moving `nginx:alpine` are not used here.
 
-dnsdist 2.0.10 and Nginx 1.30.5 are version pinned. Each applied release also records pulled RepoDigests for deterministic rollback. New image versions require a tested code update. Docker images are not silently upgraded by the host's security updater.
+dnsdist 2.0.10 and Nginx 1.30.5 are version pinned. Each applied release also records pulled RepoDigests for deterministic rollback. Route updates reuse the active image digests. To upgrade images deliberately, put reviewed pins in `/etc/nixz/images.env` and run dry-run/apply. Docker images are not silently upgraded by the host's security updater.
 
 Blocky offers convenient ad blocking, per-client groups and YAML, but does not remove the need for the same secure SNI front end and access controls. It adds no material benefit to this minimal three-domain trial. No Blocky installation or fork changes are needed.
 
@@ -193,9 +193,16 @@ sudo bash deploy.sh --rollback
 sudo docker ps
 sudo du -sh /opt/nixz/releases /var/lib/docker /var/log
 df -h /
+sudo bash backup.sh
 ```
 
 Rollback restores config, cert copy and exact image digests and requires health to pass. It does not roll back package security patches or reset SSH/UFW. For changed CIDRs, add new UFW entries and deploy the ACL first, test new access, then remove old `nixz-clients` rules by their freshly inspected rule numbers. Stale UFW entries alone cannot override Nginx's current ACL.
+
+`backup.sh` retains seven protected local archives of the active release, private settings and service definitions. Archives contain TLS keys and must be copied only to your own encrypted backup storage, never chat/GitHub. For recovery on the same node, audit UFW/SSH separately, restore the active release and `/etc/nixz`, then run the recorded Compose image digests and repeat probes. Preserve a trusted checkout of the reviewed commit. Local backups alone do not survive loss of the VPS.
+
+## Verified CI result, 2026-10-12
+
+The NixZ validate workflow passed seven route-security tests, ShellCheck, native Nginx/dnsdist syntax checks and real isolated Docker networking. DoH over HTTP/2, DoT, ordinary loopback DNS, normal recursion, A rewrites, AAAA/HTTPS/SVCB suppression, TLS passthrough to the three OpenAI names, unknown-SNI/no-SNI denial and rejection of source 127.0.0.2 all passed. Third-party peers negotiated TLS 1.3 and returned HTTP 403 from the GitHub runner. CI used a disposable self-signed certificate ONLY for its own DNS endpoint. Client generation correctly rejected that evidence. These results do not establish acceptance of VPS IP 2.27.16.203 or iPhone behavior.
 
 **Optional push CD design, not activated:** use a separate `nixz-deploy` account, no Docker group and no ordinary shell forwarding. Authorized key must use `restrict,command="/usr/local/sbin/nixz-deploy-gateway"`, no PTY, agent/TCP forwarding or X11. A root-owned gateway should accept only a 40-character commit SHA, verify membership in the approved master history and CI success, enforce a deployment lock and invoke only the reviewed route-data updater. Restrict sudo to that gateway. Store its separate key and pinned host fingerprint in a protected GitHub environment, require manual production approval and serialize per-node deployments. This gateway/key/environment are an external access setup step; no broad deploy credential is created by these scripts. The server-pull route timer above already provides CI-to-merged-data-to-deploy without storing a VPS key in GitHub.
 

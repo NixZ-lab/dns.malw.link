@@ -20,6 +20,7 @@ switch ($Step) {
   }
   'Prepare' {
     # Clone as root; admin must not be able to edit code subsequently executed as root by timers.
+    Remote 'command -v git >/dev/null || { sudo apt-get update && sudo apt-get install -y git; }'
     Remote "sudo install -d -m 755 /opt/nixz; sudo git clone --no-checkout https://github.com/NixZ-lab/dns.malw.link.git /opt/nixz/repo && sudo git -C /opt/nixz/repo checkout --detach $Commit"
     Remote "sudo install -d -m 700 /etc/nixz; sudo cp $Base/node.json.example /etc/nixz/node.json; sudo cat /etc/nixz/node.json"
     Write-Host 'Next: edit /etc/nixz/node.json via SSH with sudo nano; add your personal public client IP /32. hostname may remain empty; tls=false.'
