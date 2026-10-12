@@ -8,7 +8,11 @@ exec 9>/run/nixz-deploy.lock
 flock -n 9 || { echo 'Another deployment is active'; exit 1; }
 mode=${1:---dry-run}
 [[ $mode == --apply || $mode == --dry-run || $mode == --rollback ]] || exit 1
-node=/etc/nixz/node.json
+node=${NIXZ_NODE_FILE:-/etc/nixz/node.json}
+image_override=${NIXZ_IMAGES_FILE:-/etc/nixz/images.env}
+if [[ $mode != --dry-run && ( $node != /etc/nixz/node.json || $image_override != /etc/nixz/images.env ) ]]; then
+  echo 'Alternate node/image files are allowed only for dry-run'; exit 1
+fi
 routes=${NIXZ_ROUTES_FILE:-$PWD/routes.json}
 compose() {
   RELEASE_DIR="$1" docker compose --env-file "$1/images.env" -f "$1/compose.yaml" "${@:2}"
@@ -30,10 +34,10 @@ release="$candidate/release"
 cp compose.yaml "$release/compose.yaml"
 cp .env.example "$release/images.env"
 if [[ -f /opt/nixz/current/images.env ]]; then cp /opt/nixz/current/images.env "$release/images.env"; fi
-if [[ -f /etc/nixz/images.env ]]; then cp /etc/nixz/images.env "$release/images.env"; fi
-tls=$(python3 -c 'import json; print(json.load(open("/etc/nixz/node.json"))["tls"])')
+if [[ -f $image_override ]]; then cp "$image_override" "$release/images.env"; fi
+tls=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["tls"])' "$node")
 if [[ $tls == True ]]; then
-  hostname=$(python3 -c 'import json; print(json.load(open("/etc/nixz/node.json"))["hostname"])')
+  hostname=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["hostname"])' "$node")
   openssl x509 -in "/etc/letsencrypt/live/$hostname/fullchain.pem" -checkend 604800 -noout
   openssl x509 -in "/etc/letsencrypt/live/$hostname/fullchain.pem" -checkhost "$hostname" -noout
   install -d -o 65532 -g 65532 -m 700 "$release/certs"
