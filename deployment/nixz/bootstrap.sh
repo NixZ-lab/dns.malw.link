@@ -32,7 +32,7 @@ systemctl restart fail2ban
 # systemctl restart can report success before fail2ban has created its control socket.
 # Wait for the configured sshd jail; fail with diagnostics on a genuine startup error.
 fail2ban_ready=0
-for attempt in {1..30}; do
+for (( attempt=1; attempt<=30; attempt++ )); do
   if fail2ban-client status sshd >/dev/null 2>&1; then
     fail2ban_ready=1
     break
