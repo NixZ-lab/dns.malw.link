@@ -11,6 +11,7 @@ import ssl
 import struct
 import subprocess
 import tempfile
+import time
 from nixz import PinnedHTTPS, ROOT, load, verify_peer
 
 
@@ -66,6 +67,8 @@ def receive(sock, count):
 
 
 def dns_query(name, qtype, mode, address, hostname, ca=None, native_http=False):
+    # Large route sets must not make an acceptance probe trip production QPS limits.
+    time.sleep(0.05)
     request = query(name, qtype)
     if mode == 'udp':
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
