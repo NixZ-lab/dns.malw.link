@@ -12,10 +12,57 @@
       "auth.openai.com",
       "ios.chat.openai.com",
       "android.chat.openai.com"
+    ],
+    "claude": [
+      "claude.ai",
+      "claude.com",
+      "www.claude.com",
+      "api.anthropic.com"
+    ],
+    "gemini": [
+      "gemini.google.com",
+      "geminiweb-pa.clients6.google.com",
+      "robinfrontend-pa.googleapis.com"
+    ],
+    "deepl": [
+      "deepl.com",
+      "www.deepl.com",
+      "app.deepl.com",
+      "auth.deepl.com",
+      "api.deepl.com",
+      "backend.deepl.com",
+      "ita-free.app.deepl.com",
+      "ita-free.www.deepl.com"
+    ],
+    "elevenlabs": [
+      "elevenlabs.io",
+      "www.elevenlabs.io",
+      "api.elevenlabs.io",
+      "eleven-public-cdn.elevenlabs.io"
+    ],
+    "canva": [
+      "canva.com",
+      "www.canva.com",
+      "static.canva.com",
+      "content-management-files.canva.com"
+    ],
+    "notebooklm": [
+      "notebooklm.google.com",
+      "notebooklm.google",
+      "notebook.google.com",
+      "notebook.google",
+      "notebooklm-pa.googleapis.com",
+      "notebook-pa.googleapis.com"
     ]
   },
   "enabled_groups": [
-    "openai-test"
+    "openai-test",
+    "claude",
+    "gemini",
+    "deepl",
+    "elevenlabs",
+    "canva",
+    "notebooklm"
   ],
   "exclude": [],
   "blocked": [],
