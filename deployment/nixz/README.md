@@ -147,13 +147,13 @@ Before relying on uptime, explicitly test container restart (with console recove
 
 ### Native Windows external acceptance
 
-Windows Python 3 can run the same probe without curl or additional packages. `--native-http` uses HTTPS with normal certificate/hostname validation and HTTP/1.1 for DoH; DoT and every positive/negative DNS/SNI check stay the same. The evidence records the HTTP client, so this does not claim an external HTTP/2 test. CI exercises both curl HTTP/2 and the native HTTP/1.1 paths.
+Windows Python 3 can run the same probe without curl after installing the pinned HTTPX/HTTP2 probe dependencies in a local virtual environment. `--native-http` connects to the explicit VPS IP, sends the DNS hostname in SNI and HTTP authority, uses the system trust store and requires an actual HTTP/2 response for DoH. DoT and every positive/negative DNS/SNI check stay the same. CI exercises both curl and Python HTTP/2 paths. The dnsdist DoH listener rejects HTTP/1.1 with status 505, so a standard-library-only HTTPS probe is insufficient.
 
 On the VPS, package reviewed probe code and the active release's public metadata only:
 
 ```bash
 sudo tar -czf /home/admin/nixz-external.tgz \
-  -C /opt/nixz/repo/deployment/nixz probe.py nixz.py clients.py \
+  -C /opt/nixz/repo/deployment/nixz probe.py nixz.py clients.py requirements-probe.txt \
   -C /opt/nixz/current routes.json node.json manifest.json
 sudo chown admin:admin /home/admin/nixz-external.tgz
 sudo chmod 600 /home/admin/nixz-external.tgz
@@ -169,7 +169,11 @@ if ($LASTEXITCODE -ne 0) { throw 'SCP failed' }
 tar.exe -xzf "$ProbeDir\nixz-external.tgz" -C $ProbeDir
 if ($LASTEXITCODE -ne 0) { throw 'Extraction failed' }
 Set-Location $ProbeDir
-py .\probe.py --release . --address 2.27.16.203 --external --native-http --out .\node1-external.json
+py -m venv .venv
+if ($LASTEXITCODE -ne 0) { throw 'Virtual environment creation failed' }
+& .\.venv\Scripts\python.exe -m pip install -r .\requirements-probe.txt
+if ($LASTEXITCODE -ne 0) { throw 'Probe dependencies failed to install' }
+& .\.venv\Scripts\python.exe .\probe.py --release . --address 2.27.16.203 --external --native-http --out .\node1-external.json
 ```
 
 Only after the probe exits successfully, generate client files with `py .\clients.py --release . --evidence .\node1-external.json --out .\node1-clients`. Generating files is not authorization to install profiles or change device DNS. No network test run on the VPS qualifies as external Windows evidence.
