@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real DNS/TLS probes. Native HTTP/1.1 mode supports Windows. No certificate bypass."""
+"""Real DNS/TLS probes. Native HTTP/2 mode supports Windows. No certificate bypass."""
 import argparse
 import base64
 import datetime
@@ -82,20 +82,24 @@ def dns_query(name, qtype, mode, address, hostname, ca=None, native_http=False):
     else:
         dns = base64.urlsafe_b64encode(request).rstrip(b'=').decode()
         if native_http:
-            conn = PinnedHTTPS(hostname, address, context=ssl.create_default_context(cafile=ca))
             try:
-                conn.request('GET', '/dns-query?dns=' + dns, headers={'Accept': 'application/dns-message'})
-                reply = conn.getresponse()
-                if reply.status != 200:
-                    raise ValueError(f'DoH HTTP status {reply.status}')
-                if reply.getheader('Content-Type', '').split(';')[0].strip().lower() != 'application/dns-message':
+                import httpx
+            except ImportError:
+                raise SystemExit('Install requirements-probe.txt in a Python virtual environment first.')
+            target = '[' + address + ']' if ':' in address else address
+            with httpx.Client(http1=False, http2=True, trust_env=False, timeout=15,
+                              verify=ssl.create_default_context(cafile=ca)) as client:
+                reply = client.get('https://' + target + '/dns-query?dns=' + dns,
+                                   headers={'Host': hostname, 'Accept': 'application/dns-message'},
+                                   extensions={'sni_hostname': hostname})
+                if reply.status_code != 200 or reply.http_version != 'HTTP/2':
+                    raise ValueError(f'DoH response: {reply.http_version} status {reply.status_code}')
+                if reply.headers.get('Content-Type', '').split(';')[0].strip().lower() != 'application/dns-message':
                     raise ValueError('DoH returned an unexpected content type')
-                response = reply.read(65536)
+                response = reply.content
                 if len(response) > 65535:
                     raise ValueError('Oversized DNS response')
                 return parse(response, request)
-            finally:
-                conn.close()
         cmd = ['curl', '--noproxy', '*', '--http2', '--fail', '--silent', '--show-error',
                '--connect-timeout', '5', '--max-time', '15', '--resolve',
                f'{hostname}:443:{"[" + address + "]" if ":" in address else address}',
@@ -119,7 +123,7 @@ def main():
     parser.add_argument('--ca', help='CI-only test CA; never install on production devices')
     parser.add_argument('--skip-upstream', action='store_true', help='CI only; no production evidence')
     parser.add_argument('--native-http', action='store_true',
-                        help='Use Python HTTPS with trusted TLS and HTTP/1.1; no curl dependency (Windows)')
+                        help='Use Python HTTPX with trusted TLS and HTTP/2; requires requirements-probe.txt (Windows)')
     parser.add_argument('--out', type=Path)
     args = parser.parse_args()
     routes, node, proxy, records = load(args.release / 'routes.json', args.release / 'node.json')
@@ -132,7 +136,7 @@ def main():
     result = {'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
               'external': args.external, 'address': args.address, 'hostname': node['hostname'],
               'test_ca': bool(args.ca), 'dns': [], 'sni': [], 'client_test': 'PENDING',
-              'doh_client': 'Python HTTP/1.1' if args.native_http else 'curl --http2',
+              'doh_client': 'Python HTTPX HTTP/2' if args.native_http else 'curl --http2',
               'manifest_sha256': __import__('hashlib').sha256((args.release / 'manifest.json').read_bytes()).hexdigest()}
     expected4 = routes['nodes'][node['node']]['ipv4']
     expected6 = [routes['nodes'][node['node']]['ipv6']] if node['ipv6_verified'] else []
