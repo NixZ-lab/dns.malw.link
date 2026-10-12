@@ -52,6 +52,12 @@ def load(routes_path, node_path):
         raise ValueError('TLS requires a real hostname')
     if node['ipv6_verified'] and not selected.get('ipv6'):
         raise ValueError('IPv6 flag requires node IPv6')
+    mode = node.get('access_mode', 'private')
+    if mode not in ('private', 'public'):
+        raise ValueError('Unknown access mode')
+    if mode == 'public' and (node.get('public_access_ack') is not True
+                             or not node['tls'] or node['ipv6_verified']):
+        raise ValueError('Public mode requires explicit acknowledgement, TLS and IPv4-only acceptance')
     if not node['client_cidrs']:
         raise ValueError('Set client_cidrs locally; refuse an open service')
     for cidr in node['client_cidrs']:
@@ -204,6 +210,9 @@ stream {
         proxy_timeout 300s;
     }
 ''' + dot + '\n}\n'
+    is_public = node.get('access_mode', 'private') == 'public'
+    if is_public:
+        nginx = public_nginx(node['hostname'], upstreams, mapping)
     lua = ['setLocal("127.0.0.1:5300")', 'setACL({"127.0.0.1/32", "::1/128"})',
            'setSecurityPollSuffix("")', 'setMaxTCPClientThreads(2)',
            'setMaxTCPQueuedConnections(128)',
@@ -216,6 +225,15 @@ stream {
     if node['tls']:
         lua += ['addDOHLocal("127.0.0.1:8443", "/config/certs/fullchain.pem", "/config/certs/privkey.pem", {"/dns-query"})',
                 'addTLSLocal("127.0.0.1:8853", "/config/certs/fullchain.pem", "/config/certs/privkey.pem")']
+    if is_public:
+        # Only DNS frontends accept trusted loopback PROXYv2; local DNS stays ordinary DNS.
+        lua[0] = 'setLocal("127.0.0.1:5300", {enableProxyProtocol=false})'
+        lua.insert(2, 'setProxyProtocolACL({"127.0.0.1/32"})')
+        lua.insert(3, 'setProxyProtocolApplyACLToProxiedClients(false)')
+        lua.insert(4, 'addAction(MaxQPSIPRule(80, 32, 64, 120), RCodeAction(DNSRCode.REFUSED))')
+        lua = [line.replace('{"/dns-query"})', '{"/dns-query"}, {enableProxyProtocol=true, proxyProtocolOutsideTLS=true, minTLSVersion="tls1.2"})')
+               .replace('"/config/certs/privkey.pem")', '"/config/certs/privkey.pem", {enableProxyProtocol=true, proxyProtocolOutsideTLS=true, minTLSVersion="tls1.2"})')
+               for line in lua]
     for name in sorted(routes['blocked']):
         lua.append(f'addAction(QNameRule("{name}"), RCodeAction(DNSRCode.NXDOMAIN))')
     redirect = records.copy()
@@ -246,6 +264,71 @@ stream {
         (output / name).write_text(content)
     manifest = {name: hashlib.sha256(content.encode()).hexdigest() for name, content in files.items()}
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+
+
+def public_nginx(hostname, upstreams, mapping):
+    # Public edge creates PROXYv2. A loopback relay strips it before third-party TLS.
+    service_map = '\n'.join(line for line in mapping if not line.startswith(f'    {hostname} '))
+    return '''user nginx;
+worker_processes 1;
+pid /tmp/nginx.pid;
+error_log /dev/stderr warn;
+events { worker_connections 1024; }
+stream {
+    map $proxy_protocol_addr $log_client {
+        "" $remote_addr;
+        default $proxy_protocol_addr;
+    }
+    log_format route '$time_iso8601 $log_client $ssl_preread_server_name $upstream_addr $status $session_time';
+    access_log /dev/stdout route;
+    limit_conn_zone $binary_remote_addr zone=per_client:1m;
+    limit_conn_zone $server_addr zone=global:1m;
+''' + '\n'.join(upstreams) + '''
+    map $ssl_preread_server_name $service {
+        default 127.0.0.1:9444;
+''' + service_map + '''
+    }
+    map $ssl_preread_server_name $edge {
+        default 127.0.0.1:9446;
+''' + f'        {hostname} 127.0.0.1:8443;\n' + '''
+    }
+    server { listen 127.0.0.1:9444; return ""; }
+    server {
+        listen 127.0.0.1:9446 proxy_protocol;
+        allow 127.0.0.1; deny all;
+        ssl_preread on;
+        preread_timeout 5s;
+        proxy_protocol off;
+        proxy_pass $service;
+        proxy_connect_timeout 5s;
+        proxy_timeout 300s;
+    }
+    server {
+        listen 0.0.0.0:443;
+        ssl_preread on;
+        preread_timeout 5s;
+        limit_conn per_client 16;
+        limit_conn global 64;
+        proxy_protocol v2;
+        proxy_pass $edge;
+        proxy_upload_rate 128k;
+        proxy_download_rate 128k;
+        proxy_connect_timeout 5s;
+        proxy_timeout 300s;
+    }
+    server {
+        listen 0.0.0.0:853;
+        limit_conn per_client 16;
+        limit_conn global 64;
+        proxy_protocol v2;
+        proxy_pass 127.0.0.1:8853;
+        proxy_upload_rate 128k;
+        proxy_download_rate 128k;
+        proxy_connect_timeout 5s;
+        proxy_timeout 60s;
+    }
+}
+'''
 
 
 def main():
