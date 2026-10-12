@@ -39,7 +39,9 @@ for i in 1 2 3 4 5; do
 done
 [[ $pass == true ]]
 # Exercise the exact curl-free path used by native Windows acceptance.
-sudo python3 probe.py --release "$RELEASE_DIR" --ca "$RELEASE_DIR/certs/fullchain.pem" \
+python3 -m venv "$temp/probe-venv"
+"$temp/probe-venv/bin/python" -m pip install -r requirements-probe.txt
+sudo "$temp/probe-venv/bin/python" probe.py --release "$RELEASE_DIR" --ca "$RELEASE_DIR/certs/fullchain.pem" \
   --native-http --out "$temp/native-evidence.json"
 python3 - <<'PY'
 import socket, ssl
