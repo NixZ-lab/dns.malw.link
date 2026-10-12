@@ -35,7 +35,11 @@
       "ita-free.www.deepl.com",
       "oneshot-free.www.deepl.com",
       "clearance.deepl.com",
-      "ita.fal.free.deepl.com"
+      "ita.fal.free.deepl.com",
+      "ita-app.fal.pro.deepl.com",
+      "s.deepl.com",
+      "ott.deepl.com",
+      "w.deepl.com"
     ],
     "elevenlabs": [
       "elevenlabs.io",
