@@ -39,7 +39,15 @@ PY
 ss -lnt | grep -qE ':80[[:space:]]' && { echo 'Port 80 occupied'; exit 1; }
 ufw status | grep -q 'Status: active' || exit 1
 read -r -p 'ACME email (stored only on VPS): ' email
-[[ $email == *@* ]] || exit 1
+python3 - "$email" <<'PY'
+import re
+import sys
+
+address = sys.argv[1]
+if not (address.isascii() and address.isprintable()
+        and re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', address)):
+    raise SystemExit('Invalid ACME email: type an ASCII address without spaces or hidden characters.')
+PY
 # Keep renewal restricted to standalone HTTP-01 on 80; no broad firewall reset.
 ufw allow 80/tcp comment 'nixz-acme-temporary'
 trap 'ufw --force delete allow 80/tcp' EXIT
