@@ -59,7 +59,8 @@
       "notebook.google.com",
       "notebook.google",
       "notebooklm-pa.googleapis.com",
-      "notebook-pa.googleapis.com"
+      "notebook-pa.googleapis.com",
+      "labstailwind.pa.googleapis.com"
     ]
   },
   "enabled_groups": [
