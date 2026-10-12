@@ -1,0 +1,10 @@
+deployment/nixz/node.json
+deployment/nixz/.env
+deployment/nixz/runtime/
+deployment/nixz/clients/
+deployment/nixz/evidence/
+**/__pycache__/
+*.key
+*.pem
+*.p12
+*.pfx

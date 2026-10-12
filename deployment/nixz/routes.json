@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "nodes": {"node1": {"ipv4": "2.27.16.203", "ipv6": "2a0d:d940:1a:960::2"}},
+  "groups": {"openai-test": ["chatgpt.com", "auth.openai.com", "ios.chat.openai.com"]},
+  "enabled_groups": ["openai-test"],
+  "exclude": [],
+  "blocked": [],
+  "records": {}
+}

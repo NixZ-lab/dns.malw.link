@@ -1,0 +1,8 @@
+{
+  "node": "node1",
+  "hostname": "",
+  "tls": false,
+  "ipv6_verified": false,
+  "client_cidrs": [],
+  "ttl": 60
+}
