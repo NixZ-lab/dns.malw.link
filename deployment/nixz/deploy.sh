@@ -27,6 +27,17 @@ if [[ $mode == --rollback ]]; then
   exit
 fi
 python3 nixz.py validate --routes "$routes" --node "$node"
+if [[ $mode == --apply && -f /var/lib/nixz-public/guard.json ]] &&
+   python3 -c 'import json, sys; sys.exit(json.load(open(sys.argv[1])).get("access_mode") != "public")' "$node"; then
+  python3 public-guard.py --check
+  python3 - <<'PY'
+import json
+from pathlib import Path
+state = json.loads(Path('/var/lib/nixz-public/guard.json').read_text())
+if state.get('latched') or state['used'] >= state['budget'] or state['boot'] != Path('/proc/sys/kernel/random/boot_id').read_text().strip():
+    raise SystemExit('Public guard stopped ingress; review/recover before any public restart')
+PY
+fi
 candidate=$(mktemp -d /opt/nixz/candidate.XXXXXX)
 trap 'rm -rf "$candidate"' EXIT
 python3 nixz.py render --routes "$routes" --node "$node" --out "$candidate/release"
