@@ -79,6 +79,12 @@ PY
 export RELEASE_DIR="$temp/public-release"
 python3 nixz.py render --node "$temp/node.json" --out "$RELEASE_DIR"
 sudo cp -a "$private_release/certs" "$RELEASE_DIR/certs"
+python3 - "$RELEASE_DIR/dnsdist.conf" <<'PY'
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+p.write_text('addAction(AllRule(), LuaAction(function(dq) infolog("NIXZ_SOURCE " .. dq.remoteaddr:toString()); return DNSAction.None end))\n' + p.read_text())
+PY
 docker compose -f compose.yaml run --rm --no-deps nginx -c /config/nginx.conf -t
 docker compose -f compose.yaml run --rm --no-deps dnsdist --check-config -C /config/dnsdist.conf
 docker compose -f compose.yaml up -d --force-recreate
