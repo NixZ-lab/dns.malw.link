@@ -1,8 +1,11 @@
 # NixZ private DNS + SNI, node1
 
-**Status on 2026-10-12: deployed and locally verified; external encrypted DNS and device acceptance pending.**
-The user executed reviewed scripts on the VPS through their Windows SSH key. Work has no direct VPS shell. Current TLS release is `/opt/nixz/releases/20261012T132120Z-13122`; both containers are healthy and the apply script passed its local DoH, DoT, UDP DNS and SNI checks before activation. External Windows SNI tests passed for the three trial domains; HTTP 403 establishes transport, not iPhone application acceptance.
-The user registered `labgeo.net`. Authoritative DNS and independent public resolvers confirmed `dns1.labgeo.net` A to node1 and the domain-control TXT, with no AAAA. The Let's Encrypt certificate has the correct SAN, a trusted VPS chain and expiry 2027-01-10. UFW permits TCP 443/853 only from the locally configured client; fresh key-based SSH and external TCP 853 were confirmed. Certificate renewal and full external DoH/DoT probes remain to be verified. NextDNS, DnsConf and production hosts are unchanged. Keep PR #1 draft and unmerged until acceptance is complete.
+**2026-10-12: trusted external DoH/DoT/SNI verified from an authorized Windows network; real iPhone app text/image request succeeded without VPN on authorized home Wi-Fi.**
+The user executed the VPS commands through their own SSH/console sessions; Work did not execute remote commands. Android worked without VPN after adding the exact `android.chat.openai.com` route. Home iPhone logs correlate the real source with `dns1.labgeo.net` to local DoH and `chatgpt.com`/`ios.chat.openai.com` to public third-party upstreams. The user confirmed sending an image with a prompt and receiving a successful result. This is scoped device acceptance, not unrestricted mobile access or proof of a fresh login.
+
+The initial home/cellular test failed because both UFW and Nginx require the source address to be allowed. Home access was added to private node configuration and redeployed; the transient accidentally broad home-source TCP rule was removed. Never add a source only to UFW and assume application ACLs update. The latest home release path/hash has not been supplied, so it is not inferred from previous release evidence.
+
+`dns1.labgeo.net` has a trusted Let's Encrypt certificate expiring 2027-01-10. Simulated renewal succeeded, challenge TCP80 rules were removed, and monitoring/renewal timers and a protected local backup were installed. A production-renewal deploy-hook execution is not yet observed. Public port53 remains closed; IPv6 is not enabled. NextDNS, DnsConf and production hosts are unchanged. Keep PR #1 draft: dynamic-IP access, macOS/Windows native settings, fresh-login testing and the remaining acceptance gates are not complete.
 
 ## Architecture
 
@@ -23,7 +26,7 @@ The upstream installer is **not used**: it deletes repository files, rewrites co
 
 dnsdist 2.0.10 and Nginx 1.30.5 are version pinned. Each applied release also records pulled RepoDigests for deterministic rollback. Route updates reuse the active image digests. To upgrade images deliberately, put reviewed pins in `/etc/nixz/images.env` and run dry-run/apply. Docker images are not silently upgraded by the host's security updater.
 
-Blocky offers convenient ad blocking, per-client groups and YAML, but does not remove the need for the same secure SNI front end and access controls. It adds no material benefit to this minimal three-domain trial. No Blocky installation or fork changes are needed.
+Blocky offers convenient ad blocking, per-client groups and YAML, but does not remove the need for the same secure SNI front end and access controls. It adds no material benefit to this minimal four-domain trial. No Blocky installation or fork changes are needed.
 
 ## 1. Windows SSH and server audit
 
@@ -88,7 +91,7 @@ If the second connection fails, leave the timer alone; recover through the origi
 .\windows.ps1 -Commit <SHA> -Step Verify
 ```
 
-The dry-run resolves **only the three exact OpenAI names** through two independent public DoH resolvers, validates every returned address, rejects all our node IPs, tests their real TLS identity, generates a candidate and runs both containers' syntax checkers. Failed resolution or any unsafe address aborts the update. Neither upstream lists nor GeoHide hosts are imported.
+The dry-run resolves **only the enabled exact OpenAI names** through two independent public DoH resolvers, validates every returned address, rejects all our node IPs, tests their real TLS identity, generates a candidate and runs both containers' syntax checkers. Failed resolution or any unsafe address aborts the update. Neither upstream lists nor GeoHide hosts are imported.
 
 Apply creates an immutable release, starts containers, verifies synthesized DNS, real SNI TLS and unknown-SNI rejection. On failure it restores the previous config/images or stops an unsuccessful first deployment. After local acceptance it advances `current` and `previous` symlinks. No external success is inferred.
 
@@ -203,7 +206,7 @@ Disable Windscribe and every other VPN. For this diagnostic also turn off Privat
 
 ## Routes, CI, updates and rollback
 
-Edit `routes.json` in a feature branch and submit a PR. Exact domains only. The enabled group begins with `chatgpt.com`, `auth.openai.com`, `ios.chat.openai.com`; add more names only from actual failed SNI/DNS diagnostics. `exclude` is exact-match; `blocked` is exact NXDOMAIN. Static A/AAAA are in `records`. All outputs derive from this same config. Generated `hosts` uses our node IP, plus an independent AdGuard export. Exporting a hosts file is **not** permission to point DnsConf at it.
+Edit `routes.json` in a feature branch and submit a PR. Exact domains only. The enabled group begins with `chatgpt.com`, `auth.openai.com`, `ios.chat.openai.com`, `android.chat.openai.com`; add more names only from actual failed SNI/DNS diagnostics. `exclude` is exact-match; `blocked` is exact NXDOMAIN. Static A/AAAA are in `records`. All outputs derive from this same config. Generated `hosts` uses our node IP, plus an independent AdGuard export. Exporting a hosts file is **not** permission to point DnsConf at it.
 
 CI validates inputs, injection/private-IP/self-loop rejection, exclusions, IPv6 policy, shell syntax and real Docker integration with a disposable own DNS test certificate. It does not connect to the VPS. CI contains no deploy key or production secret and cannot alter NextDNS. Preserve upstream directories and pull upstream updates separately.
 
@@ -234,19 +237,57 @@ Rollback restores config, cert copy and exact image digests and requires health 
 
 ## Verified CI result, 2026-10-12
 
-The NixZ validate workflow passed seven route-security tests, ShellCheck, native Nginx/dnsdist syntax checks and real isolated Docker networking. DoH over HTTP/2, DoT, ordinary loopback DNS, normal recursion, A rewrites, AAAA/HTTPS/SVCB suppression, TLS passthrough to the three OpenAI names, unknown-SNI/no-SNI denial and rejection of source 127.0.0.2 all passed. Third-party peers negotiated TLS 1.3 and returned HTTP 403 from the GitHub runner. CI used a disposable self-signed certificate ONLY for its own DNS endpoint. Client generation correctly rejected that evidence. These results do not establish acceptance of VPS IP 2.27.16.203 or iPhone behavior.
+The NixZ validate workflow passed nine route-security and certificate-input tests, ShellCheck, native Nginx/dnsdist syntax checks and real isolated Docker networking. DoH over HTTP/2, DoT, ordinary loopback DNS, normal recursion, A rewrites, AAAA/HTTPS/SVCB suppression, TLS passthrough to the four OpenAI names, unknown-SNI/no-SNI denial and rejection of source 127.0.0.2 all passed. Third-party peers negotiated TLS 1.3 and returned HTTP 403 from the GitHub runner. CI used a disposable self-signed certificate ONLY for its own DNS endpoint. Client generation correctly rejected that evidence. These results do not establish acceptance of VPS IP 2.27.16.203 or iPhone behavior.
 
 **Optional push CD design, not activated:** use a separate `nixz-deploy` account, no Docker group and no ordinary shell forwarding. Authorized key must use `restrict,command="/usr/local/sbin/nixz-deploy-gateway"`, no PTY, agent/TCP forwarding or X11. A root-owned gateway should accept only a 40-character commit SHA, verify membership in the approved master history and CI success, enforce a deployment lock and invoke only the reviewed route-data updater. Restrict sudo to that gateway. Store its separate key and pinned host fingerprint in a protected GitHub environment, require manual production approval and serialize per-node deployments. This gateway/key/environment are an external access setup step; no broad deploy credential is created by these scripts. The server-pull route timer above already provides CI-to-merged-data-to-deploy without storing a VPS key in GitHub.
 
 ## Limitations and second node
 
-* SNI passthrough cannot read ECH-hidden target names; HTTPS/SVCB suppression applies only to the exact rewritten domains. Cached or application-embedded ECH and independent DNS can still break routing. The three-domain trial may be insufficient for complete app login/attachments.
+* SNI passthrough cannot read ECH-hidden target names; HTTPS/SVCB suppression applies only to the exact rewritten domains. Cached or application-embedded ECH and independent DNS can still break routing. The four-domain trial may be insufficient for complete app login/attachments.
 * TCP only: no HTTP/3 or QUIC proxy. UDP 443 stays blocked and most clients fall back to TCP; that behavior must be tested on the actual app. TLS is end-to-end for third-party sites. Only our own DNS TLS is terminated locally.
 * SNI restrictions constrain destinations to selected public service IPs. They cannot inspect encrypted HTTP Host/content on a multi-tenant CDN or enforce application-account authorization. Pins can become stale; refresh fails closed and rolls back if peers cannot be verified.
 * IP ACL mobility and CGNAT require care; without public unrestricted access or a VPN there is no universal transparent solution across arbitrary mobile source IPs with native Android DoT.
 * One VPS is a single point of failure. Several hosts lines for a name are not failover.
 
 For node2 choose another provider **and verify a different routed ASN**, a public IPv4 accepted by required services and separately controlled DNS hostname/cert. Add node2 to `nodes`, use a local `node2` configuration and run identical reviewed code on that server. Each DNS node rewrites to its own healthy local proxy; it rejects both nodes' IPs as SNI upstreams. Deploy sequentially, externally verify one before the other. Windows can register both encrypted DNS IP/templates; Apple needs a separately tested dual-node profile rather than assuming profile selection equals failover. Android accepts one Private DNS hostname, requiring a shared DNS name with a certificate valid on both nodes and tested multi-A/health-managed behavior, or explicit hostname switching. Hosts cannot implement this. Never promise seamless failover without device tests.
+
+## Mobile access decision: prepared only, no public ingress change
+
+Native Android Private DNS supplies a DoT provider hostname, not a user token or client certificate selector. The Apple profile uses native DoH; protecting only its DNS URL does not authenticate third-party SNI tunnels. Those HTTPS connections are end-to-end encrypted, so the proxy cannot insert/check a custom HTTP login without breaking passthrough.
+
+Two materially different choices remain:
+
+1. **Private, source-granted access (recommended security default).** Keep the current CIDR checks at both UFW and Nginx. A future authenticated HTTPS access page could grant the caller's observed public /32 for a short bounded lease. It must be reachable independently of a blocked NixZ resolver, require strong authentication, never accept a client-supplied target IP/command, atomically update a separate runtime ACL and expire leases. This page/helper is NOT implemented. A shortcut may simplify renewal but is not universally automatic on both platforms. Changes of network/IP need a new grant. CGNAT can give the same source IP to unrelated people; a web grant's egress may differ from DoT/proxy egress. Do not widen to a carrier ASN/range to hide that mismatch.
+2. **Publicly reachable, abuse-limited encrypted DNS and exact SNI (separate user decision required).** This best fits unattended Wi-Fi/LTE changes but is not a private authenticated service. Anyone could use recursive DoH/DoT and the allowed service destinations. Rate/connection limits reduce cost; they do not authenticate clients or prevent every abuse. Shared CDNs mean an SNI allowlist is not an HTTP-content/account restriction. A leaked/special DNS hostname is not strong authentication.
+
+Before implementing option 2:
+- Preserve real client identity at the DNS rate limiter, or enforce verified per-client query limits at a DNS-aware edge. Current dnsdist sees loopback: QPSAction(200) is aggregate; Nginx's 32-connection/source limit alone cannot stop one HTTP/2 connection from issuing many DNS queries.
+- Verify protocol compatibility, not just a config directive: pinned Nginx 1.30.5's standard stream PROXY output is v1, while dnsdist's documented mechanism is PROXYv2. Current upstream Nginx docs expose v2 only from 1.31.4. Do not turn on global proxy_protocol blindly: it would also corrupt third-party TLS streams. Any adapter/routing split must apply only to own DNS, retain localhost-only backend trust and pass forged-header/source tests.
+- Bound per-source/global DNS queries, new TLS connections, concurrent tunnels, transfer rates, total memory/CPU/logs and provider traffic budget. Account for legitimate CGNAT sharing. Per-connection stream transfer limits are not a global bandwidth quota.
+- Keep exact SNI/public pinned destinations, reject self/private/unknown destinations, keep public53/admin ports/UDP443 closed, and do not enable untested IPv6.
+- Test overload isolation and spoofed source metadata, narrow-to-public-to-narrow rollback, external unknown-SNI rejection, and native Android/iPhone Wi-Fi-to-LTE behavior. Opening firewall/ACL is a deployment step only after the risk decision and these candidate checks.
+
+Sources: [Android configuration](https://developers.google.com/speed/public-dns/docs/using), [dnsdist source forwarding](https://www.dnsdist.org/advanced/passing-source-address.html), [Nginx stream proxy directives](https://nginx.org/en/docs/stream/ngx_stream_proxy_module.html). Documentation describes candidates, not installed capabilities.
+
+## Adding services without changing NextDNS
+
+Only edit `deployment/nixz/routes.json` in the infrastructure feature branch. Add a named service group with exact hostnames and opt that group into `enabled_groups`. Do not copy a broad external hosts list, add wildcard routes, or put upstream CDN addresses into `records` as proxy destinations.
+
+Example route-data fragment (the names are explanatory placeholders, NOT installed routes):
+
+```json
+"groups": {
+  "openai-test": ["chatgpt.com", "auth.openai.com", "ios.chat.openai.com", "android.chat.openai.com"],
+  "new-service": ["service.example", "auth.service.example"]
+},
+"enabled_groups": ["openai-test", "new-service"]
+```
+
+For each requested service, record the actual website/app and platform, required actions (login/chat/files/etc.), exact documented or observed endpoints, and why proxying is necessary. Some names need normal DNS only. Existing SNI logs show routed connections, not all directly accessed domains or every DNS query; absence from those logs does not identify a missing domain. Use temporary device DNS/network metadata or official service documentation as needed, never HTTPS interception or credential/content logging.
+
+Validate the PR/CI, then dry-run with the private node config on the VPS. The renderer independently resolves public A upstreams, rejects private/self IPs and verifies their TLS identity. Apply through the reviewed deployment script, correlate external TLS/SNI/DNS and native app behavior, and rollback on regression. Adding a name to an enabled group generates that node's A rewrite, exact SNI allowlist, hosts and AdGuard export together. AAAA stays suppressed until IPv6 is verified; HTTPS/SVCB are suppressed only for rewritten proxy names. Static `records`, exact `exclude` and `blocked` are separate controls, not alternate SNI routing methods.
+
+While PR #1 is draft, do not run `routes-sync.sh` or enable its timer: that script reads master, which does not yet contain this deployment. Use a reviewed fixed feature commit manually. After approval/merge, the existing data-only master updater and timer apply merged route changes without executing new remote root code. Do not alter DnsConf, its ownership journal, NextDNS rewrites or production hosts for this operation.
 
 ## Acceptance statuses
 
