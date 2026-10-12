@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+cd "$(dirname "$0")/.."
+temp=$(mktemp -d)
+export RELEASE_DIR="$temp/release"
+cleanup() {
+  docker compose -f compose.yaml logs --tail=40 || true
+  docker compose -f compose.yaml down || true
+  sudo rm -rf "$temp"
+}
+trap cleanup EXIT
+python3 - "$temp/node.json" <<'PY'
+import json, sys
+from pathlib import Path
+data = json.loads(Path('node.json.example').read_text())
+data.update(hostname='dns.nixz-ci.invalid', tls=True, client_cidrs=['8.8.8.8/32'])
+Path(sys.argv[1]).write_text(json.dumps(data))
+PY
+python3 nixz.py render --node "$temp/node.json" --out "$RELEASE_DIR"
+mkdir "$RELEASE_DIR/certs"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=dns.nixz-ci.invalid' \
+  -addext 'subjectAltName=DNS:dns.nixz-ci.invalid' \
+  -keyout "$RELEASE_DIR/certs/privkey.pem" -out "$RELEASE_DIR/certs/fullchain.pem" 2>/dev/null
+chmod 755 "$temp" "$RELEASE_DIR"
+sudo chown -R 65532:65532 "$RELEASE_DIR/certs"
+sudo chmod 700 "$RELEASE_DIR/certs"
+sudo chmod 400 "$RELEASE_DIR/certs/privkey.pem"
+docker compose -f compose.yaml config --quiet
+docker compose -f compose.yaml pull
+docker compose -f compose.yaml run --rm --no-deps nginx -c /config/nginx.conf -t
+docker compose -f compose.yaml run --rm --no-deps dnsdist --check-config -C /config/dnsdist.conf
+docker compose -f compose.yaml up -d
+pass=false
+for i in 1 2 3 4 5; do
+  echo "Integration attempt $i"
+  # Real public SNI peers; self-signed cert is accepted only for our isolated DNS fixture.
+  if sudo python3 probe.py --release "$RELEASE_DIR" --ca "$RELEASE_DIR/certs/fullchain.pem" --out "$temp/evidence.json"; then pass=true; break; fi
+  sleep 3
+done
+[[ $pass == true ]]
+# Exercise the exact curl-free path used by native Windows acceptance.
+python3 -m venv "$temp/probe-venv"
+"$temp/probe-venv/bin/python" -m pip install -r requirements-probe.txt
+sudo "$temp/probe-venv/bin/python" probe.py --release "$RELEASE_DIR" --ca "$RELEASE_DIR/certs/fullchain.pem" \
+  --native-http --out "$temp/native-evidence.json"
+python3 - <<'PY'
+import socket, ssl
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+for port in [443, 853]:
+    raw = socket.socket()
+    raw.settimeout(5)
+    raw.bind(('127.0.0.2', 0))
+    try:
+        raw.connect(('127.0.0.1', port))
+        peer = ctx.wrap_socket(raw, server_hostname='dns.nixz-ci.invalid')
+    except (OSError, ssl.SSLError):
+        pass
+    else:
+        peer.close()
+        raise SystemExit(f'Unlisted source IP accepted on {port}')
+    finally:
+        raw.close()
+print('Unlisted source-IP rejection passed')
+PY
+if sudo python3 clients.py --release "$RELEASE_DIR" --evidence "$temp/evidence.json" --out "$temp/clients"; then
+  echo 'BUG: client profiles accepted test-CA/local evidence'; exit 1
+fi
+private_release="$RELEASE_DIR"
+python3 - "$temp/node.json" <<'PY'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+node = json.loads(p.read_text())
+node.update(access_mode='public', public_access_ack=True)
+p.write_text(json.dumps(node))
+PY
+export RELEASE_DIR="$temp/public-release"
+python3 nixz.py render --node "$temp/node.json" --out "$RELEASE_DIR"
+sudo cp -a "$private_release/certs" "$RELEASE_DIR/certs"
+docker compose -f compose.yaml run --rm --no-deps nginx -c /config/nginx.conf -t
+docker compose -f compose.yaml run --rm --no-deps dnsdist --check-config -C /config/dnsdist.conf
+docker compose -f compose.yaml up -d --force-recreate
+sudo "$temp/probe-venv/bin/python" probe.py --release "$RELEASE_DIR" --ca "$RELEASE_DIR/certs/fullchain.pem" \
+  --native-http --out "$temp/public-evidence.json"
+# Exercise the exact v2 preflight that failed on the real client, not just a root GET.
+sudo python3 - "$RELEASE_DIR" <<'PY'
+import json, sys, uuid
+from pathlib import Path
+from nixz import PinnedHTTPS, load
+release = Path(sys.argv[1])
+_, _, names, _ = load(release / 'routes.json', release / 'node.json')
+host = 'ita.fal.free.deepl.com'
+if host in names:
+    conn = PinnedHTTPS(host, '127.0.0.1')
+    try:
+        conn.request('OPTIONS', '/v2/startSession?client=' + str(uuid.uuid4()),
+                     headers={'Origin': 'https://www.deepl.com',
+                              'Access-Control-Request-Method': 'POST',
+                              'Access-Control-Request-Headers': 'content-type'})
+        response = conn.getresponse()
+        origin = response.getheader('Access-Control-Allow-Origin')
+        print(f'DeepL v2 preflight through SNI: HTTP={response.status} origin={origin}', flush=True)
+        assert response.status in (200, 204), 'DeepL v2 preflight refused'
+        assert origin in ('https://www.deepl.com', '*'), 'DeepL v2 CORS origin missing'
+    finally:
+        conn.close()
+PY
+sudo "$temp/probe-venv/bin/python" tests/public_integration.py "$RELEASE_DIR"
+# Return to the private candidate and verify unlisted sources are denied again.
+export RELEASE_DIR="$private_release"
+docker compose -f compose.yaml up -d --force-recreate
+sudo python3 - <<'PY'
+import socket, ssl
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+for port in (443, 853):
+    with socket.socket() as raw:
+        raw.settimeout(5)
+        raw.bind(('127.0.0.2', 0))
+        raw.connect(('127.0.0.1', port))
+        try:
+            peer = ctx.wrap_socket(raw, server_hostname='dns.nixz-ci.invalid')
+        except (OSError, ssl.SSLError):
+            pass
+        else:
+            peer.close()
+            raise AssertionError('Public-to-private rollback did not reject unlisted source')
+print('Public-to-private source ACL restoration passed')
+PY
+echo 'Isolated Docker integration passed. This does NOT verify node1 VPS or iPhone.'

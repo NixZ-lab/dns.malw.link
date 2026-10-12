@@ -1,0 +1,38 @@
+name: NixZ validate
+on:
+  pull_request:
+    paths: ['deployment/nixz/**', '.github/workflows/nixz-validate.yml']
+  push:
+    branches: ['master', 'feature/nixz-private-dns-sni']
+    paths: ['deployment/nixz/**', '.github/workflows/nixz-validate.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nixz-validate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Python and route-security tests
+        run: |
+          python3 -m unittest discover -s deployment/nixz/tests -v
+          python3 -m compileall -q deployment/nixz
+          for file in deployment/nixz/*.sh deployment/nixz/tests/*.sh; do bash -n "$file"; done
+      - name: ShellCheck
+        run: shellcheck -S warning deployment/nixz/*.sh deployment/nixz/tests/*.sh
+      - name: Actual UFW command syntax without activation
+        run: |
+          if ! command -v ufw >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y ufw
+          fi
+          sudo python3 deployment/nixz/public-guard.py --firewall-preflight > /tmp/nixz-ufw-preflight.log
+          tail -n 1 /tmp/nixz-ufw-preflight.log
+      - name: Real isolated dnsdist / Nginx integration
+        run: bash deployment/nixz/tests/integration.sh
