@@ -24,7 +24,7 @@ Android native Private DNS cannot carry a token or arbitrary login. For a privat
 
 The upstream installer is **not used**: it deletes repository files, rewrites configs in place, issues certificates despite failed DNS checks, opens temporary iptables exceptions and downloads uncontrolled upstream lists. Original Compose publishes 53 and dnsdist uses universal ACLs. Original Nginx resolves permitted names dynamically and permits wildcard subdomains. It does not reject private DNS destinations. The original cache permits stale answers for an hour; its tag 2.0.5 and moving `nginx:alpine` are not used here.
 
-dnsdist 2.0.10 and Nginx 1.30.5 are version pinned. Each applied release also records pulled RepoDigests for deterministic rollback. Route updates reuse the active image digests. To upgrade images deliberately, put reviewed pins in `/etc/nixz/images.env` and run dry-run/apply. Docker images are not silently upgraded by the host's security updater.
+dnsdist 2.0.10 remains pinned. The public-mode candidate pins Nginx 1.31.6-alpine, whose stream module supports PROXYv2; currently deployed private releases retain their recorded older digest until an explicit tested upgrade. Each applied release also records pulled RepoDigests for deterministic rollback. Route updates reuse the active image digests. To upgrade images deliberately, put reviewed pins in `/etc/nixz/images.env` and run dry-run/apply. Docker images are not silently upgraded by the host's security updater.
 
 Blocky offers convenient ad blocking, per-client groups and YAML, but does not remove the need for the same secure SNI front end and access controls. It adds no material benefit to this minimal four-domain trial. No Blocky installation or fork changes are needed.
 
@@ -299,3 +299,33 @@ While PR #1 is draft, do not run `routes-sync.sh` or enable its timer: that scri
 | BLOCKED | no authorized VPS shell, missing domain control, missing real client ACLs, or console recovery not verified |
 
 Never promote CI results or a single HTTP 403 to VPS/iPhone acceptance. Existing NextDNS profile `7437fe`, its 808 Rewrites, DnsConf ownership journal and production hosts must remain untouched.
+
+## Public-mode candidate implementation (not yet installed on node1)
+
+The user approved the public-mode risk decision on 2026-10-12. Candidate code is not proof of deployment or LTE acceptance. Existing node files default to private mode; public mode requires `access_mode: "public"`, `public_access_ack: true`, TLS enabled and IPv6 disabled. Keep nonempty private `client_cidrs` for recovery. Do not add 0.0.0.0/0 to that list.
+
+Candidate edge: Nginx 1.31.6 adds a PROXYv2 header to its own local DNS backends. Third-party TLS is routed through loopback port9446, which consumes the header and forwards the unchanged TLS stream to exact pinned public upstreams. Headers are never passed to third-party servers. The relay listens only on loopback; original source IPs remain in its route logs. Local UDP/TCP5300 does not require a PROXY header.
+
+Candidate safeguards:
+- dnsdist trusts PROXYv2 only from physical peer127.0.0.1, only on its TLS frontends, with the header outside TLS. It retains a loopback physical-peer ACL, validates upstream DNS certificates and refuses ANY. A per-source 80QPS/120-burst rule returns REFUSED before route processing; the existing 200QPS aggregate action remains. Same-source DoH and DoT share the per-source budget.
+- Public edge caps concurrent connections at16/source and64 globally, with 128KiB/s per connection in each direction. Shared source IPs under CGNAT share those limits. These are candidate starting values, not an audited capacity promise.
+- `public-guard.py --arm --fresh-ssh-and-console-tested` defaults to a conservative 2GiB per UTC day of total host-interface RX+TX, sampled every15seconds. It opens only IPv4 TCP443/853, installs a persistent timer and leaves SSH, public53, IPv6 and UDP443 unchanged.
+- Budget overrun, reboot/counter reset or a guard sampling error stops the Nginx container, including current tunnels; normal overrun also removes its public UFW rules. Narrow network rules and dnsdist remain. A sampling/error stop may leave public rules present, but Nginx is stopped: inspect and close rules before recovery. Local health monitoring reports the outage. There is no automatic reopening after a latch.
+- The budget may overshoot within the sampling/stop interval and counts other host traffic. Host-side rules cannot stop provider-side ingress billing or a volumetric attack; provider quota/DDoS handling remains necessary. It is not cryptographic client authentication.
+- If a private release is restored, the guard leaves private Nginx alone. Stop/disable the guard timer and inspect UFW during operator recovery. A stale/latched guard state is not silently reset by `--arm`.
+
+Deployment gates:
+1. Confirm green CI for the reviewed final commit, a fresh SSH login and a working provider console. Back up private node settings and image overrides.
+2. Install the fixed reviewed feature commit as root. Upgrade the Nginx image deliberately via `/etc/nixz/images.env`; old active image digests are reused by deploy.sh unless overridden. Public syntax preflight must pass with the actual image before any activation.
+3. Set the local public flags, retain private CIDRs, run `deploy.sh --dry-run` and inspect. No firewall widening is performed by dry-run.
+4. Apply while UFW is still narrow, verify local evidence, trusted external DoH/DoT/SNI from an already allowed network, effective public limits, current bind ports and unchanged SSH. The ordinary Firewall helper still adds only narrow client rules.
+5. Only then arm the traffic guard/open IPv4 ingress. Test native LTE, Wi-Fi-to-LTE transitions, forged headers, unknown SNI and budget-close/recovery. Log the actual active SHA, image digests, manifest and client results.
+6. `public-guard.py --close` is the emergency operator stop. For recovery, disable its timer, restore the saved private flags/image override as appropriate, run reviewed private deploy dry-run/apply, inspect UFW and repeat probes. Do not manually restart a latched public container without fixing the cause and deliberately reviewing/resetting guard state.
+
+The new integration stage tests public DNS/TLS, source query flood/refusal, independent-client isolation, cross-transport source identity despite a forged X-Forwarded-For header, external PROXY header rejection, the16-connection source cap and public-to-private ACL restoration. It uses disposable CI TLS only, not production certificate evidence. Budget accounting/reset/latch logic has unit tests; host UFW/systemd guard behavior still requires a controlled node1 test.
+
+## Supplied hosts catalogue: inactive by default
+
+`service-candidates.json` contains101 service groups and1,018 valid exact candidate names extracted from the user's supplied hosts. All22 source IP values were discarded, repeated IP/name lines deduplicated, and four legacy local/DNS-test names excluded. Its enabled_groups is empty. `import_hosts.py` validates inputs and reproduces this conversion without enabling any route.
+
+The supplied list is a candidate source, not ownership/need/TLS validation. Do not assume every www/API/status/telemetry/third-party name is required, or that every listed service can use a TCP443 SNI proxy. Game/voice/UDP protocols and arbitrary dynamically generated hostnames may not fit. No broad generic CDN root or wildcard is enabled. Active routes remain the four accepted OpenAI names, and the100-active-domain v1 safety gate is unchanged. Review and activate small service groups in routes.json through CI and real tests; do not lift the limit to blindly import the entire catalogue.
